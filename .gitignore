@@ -1,0 +1,10 @@
+# STM32CubeIDE Build Output
+Debug/
+Release/
+
+# Eclipse / IDE
+.settings/
+
+# OS
+Thumbs.db
+.DS_Store
