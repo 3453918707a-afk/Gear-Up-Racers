@@ -2,6 +2,8 @@
 
 基于 STM32F407 的智能循迹避障小车，集成双毫米波雷达、超声波测距、LoRa 无线通信与 TFT 实时可视化。
 
+> **作者**：Shen Yang、Zhou Xuanyu、Cui Chenhe、Wang Yiyang、Wang Jiacheng
+
 ## 硬件配置
 
 | 模块 | 型号 | 接口 | 用途 |
@@ -59,4 +61,4 @@ main.c
 
 ## 开源协议
 
-MIT License © 2026 Shen Yang
+MIT License © 2026 Shen Yang, Zhou Xuanyu, Cui Chenhe, Wang Yiyang, Wang Jiacheng
