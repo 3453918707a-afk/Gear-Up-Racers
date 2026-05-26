@@ -42,21 +42,9 @@ void LCD_FillRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color
     LCD_DC_SET();
     LCD_CS_CLR();
 
-    /* 按批次缓冲发送，32 像素 = 64 字节一批，大幅减少 SPI 事务数 */
-    uint32_t total = (uint32_t)w * h;
-    uint8_t  batch_buf[64];
-    uint8_t  color_hi = color >> 8;
-    uint8_t  color_lo = color & 0xFF;
-
-    while (total > 0) {
-        uint32_t batch = (total > 32) ? 32 : total;
-        uint8_t *p = batch_buf;
-        for (uint32_t i = 0; i < batch; i++) {
-            *p++ = color_hi;
-            *p++ = color_lo;
-        }
-        HAL_SPI_Transmit(&hspi1, batch_buf, batch * 2, HAL_MAX_DELAY);
-        total -= batch;
+    uint8_t data[2] = {color >> 8, color & 0xFF};
+    for (uint32_t i = 0; i < (uint32_t)w * h; i++) {
+        HAL_SPI_Transmit(&hspi1, data, 2, HAL_MAX_DELAY);
     }
     LCD_CS_SET();
 }
@@ -108,23 +96,18 @@ void LCD_ShowChar(uint16_t x, uint16_t y, char num, uint16_t color, uint16_t bg_
     LCD_CS_CLR();
 
     num = num - ' ';
-    /* 按行缓冲：将 128 次 SPI 单像素传输 → 16 次行传输，速度提升约 8 倍 */
-    uint8_t row_buf[16];
-
     for(t = 0; t < 16; t++) {
         temp = asc2_1608[(uint8_t)num][t];
-        uint8_t *p = row_buf;
         for(t1 = 0; t1 < 8; t1++) {
             if(temp & 0x80) {
-                *p++ = color >> 8;
-                *p++ = color & 0xFF;
+                uint8_t d[2] = {color >> 8, color & 0xFF};
+                HAL_SPI_Transmit(&hspi1, d, 2, HAL_MAX_DELAY);
             } else {
-                *p++ = bg_color >> 8;
-                *p++ = bg_color & 0xFF;
+                uint8_t d[2] = {bg_color >> 8, bg_color & 0xFF};
+                HAL_SPI_Transmit(&hspi1, d, 2, HAL_MAX_DELAY);
             }
             temp <<= 1;
         }
-        HAL_SPI_Transmit(&hspi1, row_buf, 16, HAL_MAX_DELAY);
     }
     LCD_CS_SET();
 }

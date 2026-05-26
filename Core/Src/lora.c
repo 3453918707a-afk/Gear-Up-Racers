@@ -24,20 +24,16 @@ void LoRa_Init(void)
  */
 void LoRa_SendFixed(char *str)
 {
-    static uint8_t tx_buf[128];
-    uint16_t len;
+    uint8_t header[3] = {
+        TARGET_ADDR_H,
+        TARGET_ADDR_L,
+        TARGET_CHANNEL
+    };
 
-    /* 上一次发送未完成则跳过，避免覆盖 DMA/IT 缓冲区导致数据错乱 */
-    if (huart3.gState != HAL_UART_STATE_READY) return;
+    // 1. 发送定向传输所需的 3 字节帧头
+    HAL_UART_Transmit(&huart3, header, 3, 1000);
 
-    len = strlen(str);
-    tx_buf[0] = TARGET_ADDR_H;
-    tx_buf[1] = TARGET_ADDR_L;
-    tx_buf[2] = TARGET_CHANNEL;
-    if (len > sizeof(tx_buf) - 3) len = sizeof(tx_buf) - 3;
-    memcpy(tx_buf + 3, str, len);
-
-    /* 非阻塞中断发送：不冻结主循环，小车循迹不受影响 */
-    HAL_UART_Transmit_IT(&huart3, tx_buf, 3 + len);
+    // 2. 发送真实的业务报文数据
+    HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), 1000);
 }
 

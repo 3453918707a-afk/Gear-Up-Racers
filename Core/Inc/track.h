@@ -36,7 +36,6 @@ void Motor_Stop(void);
 
 int Track_GetLastError(void);
 int Track_IsSpecificTRoad(void);
-int Track_IsLineRecovered(void);
 
 #ifdef __cplusplus
 }

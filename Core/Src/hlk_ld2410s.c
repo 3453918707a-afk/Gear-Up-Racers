@@ -162,20 +162,11 @@ static void DrawRadarGraph(LD2410S_Context_t *ctx, uint16_t x_offset, uint16_t y
             last_y = current_y;
         }
 
-        // 4. SPI 分批刷屏：每块 512 字节，块间释放总线让其他中断可响应
+        // 4. SPI 刷屏全量传输
         LCD_SetWindow(x_offset, y_offset, x_offset + 159, y_offset + 179);
         LCD_DC_SET();
         LCD_CS_CLR();
-        {
-            uint8_t *ptr = (uint8_t*)graph_buf;
-            uint32_t remaining = sizeof(graph_buf);
-            while (remaining > 0) {
-                uint32_t chunk = (remaining > 512) ? 512 : remaining;
-                HAL_SPI_Transmit(&hspi1, ptr, chunk, HAL_MAX_DELAY);
-                ptr += chunk;
-                remaining -= chunk;
-            }
-        }
+        HAL_SPI_Transmit(&hspi1, (uint8_t*)graph_buf, sizeof(graph_buf), HAL_MAX_DELAY);
         LCD_CS_SET();
 
         ctx->data.is_new_data = 0;

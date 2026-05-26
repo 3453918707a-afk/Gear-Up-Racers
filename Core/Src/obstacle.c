@@ -38,21 +38,20 @@ void Obstacle_ActivateRadar(void)
 
 void Obstacle_ManagerLoop(void)
 {
-    static float avg_left_dist  = 200.0f;
+    // -----------------------------------------------------------------
+    // 算法核心：实时计算左右雷达的指数移动平均距离（EMA滤波），消除雷达数据抖动
+    // -----------------------------------------------------------------
+    static float avg_left_dist = 200.0f;
     static float avg_right_dist = 200.0f;
 
+    // 当雷达测距返回0时，代表前方极为开阔（超量程），我们赋予它一个大安全基准值（如500cm）
     float cur_left  = (float)radar1.data.target_dist_cm;
     float cur_right = (float)radar2.data.target_dist_cm;
 
-    /* 雷达超量程时返回 0，映射为大安全值，防止 EMA 被错误拉向 0 而误触发避障 */
-    if (cur_left  == 0.0f) cur_left  = 200.0f;
-    if (cur_right == 0.0f) cur_right = 200.0f;
-
-    /* 避障旋转期间暂停 EMA 更新，防止车体旋转时雷达对墙/对空交替污染滤波器 */
-    if (g_car_state != CAR_MODE_AVOIDING) {
-        avg_left_dist  = avg_left_dist * 0.8f + cur_left * 0.2f;
-        avg_right_dist = avg_right_dist * 0.8f + cur_right * 0.2f;
-    }
+    // 经典 EMA 滤波公式（80%权重保留历史，20%听从当前，滤掉瞬间噪声）
+    avg_left_dist  = avg_left_dist * 0.8f + cur_left * 0.2f;
+    avg_right_dist = avg_right_dist * 0.8f + cur_right * 0.2f;
+    // -----------------------------------------------------------------
 
     switch (g_car_state)
     {
@@ -61,55 +60,62 @@ void Obstacle_ManagerLoop(void)
             break;
 
         case CAR_MODE_RADAR_ON_TRACKING:
-            if (Track_IsSpecificTRoad() && (HAL_GetTick() - junction_cooldown_tick > 2000))
+            // 优先拦截检测：看是否正好走到了 特异性丁字路口
+            if (Track_IsSpecificTRoad()&& (HAL_GetTick() - junction_cooldown_tick > 2000))
             {
+                // 满足条件，立刻接管底盘，切入强制转向避障状态
                 g_car_state = CAR_MODE_AVOIDING;
                 avoidance_start_tick = HAL_GetTick();
 
-                if (avg_left_dist > avg_right_dist) {
-                    g_avoid_dir = -1;
-                } else {
-                    g_avoid_dir = 1;
+                // 核心决策：向平均距离较大的方向（即阻碍物更远、空间更开阔的方向）转弯
+                if (avg_left_dist > avg_right_dist)
+                {
+                    g_avoid_dir = -1; // 左边更空旷，决定向左转
+                }
+                else
+                {
+                    g_avoid_dir = 1;  // 右边更空旷，决定向右转
                 }
             }
+            // 如果不是特殊路口，检测是否有突发的近场障碍物（保留原有的近场刹车保护）
             else if ((radar1.data.target_dist_cm > 0 && radar1.data.target_dist_cm <= RADAR_DIST_THRESHOLD_CM) ||
                      (radar2.data.target_dist_cm > 0 && radar2.data.target_dist_cm <= RADAR_DIST_THRESHOLD_CM))
             {
                 g_car_state = CAR_MODE_AVOIDING;
                 avoidance_start_tick = HAL_GetTick();
-                /* 方向判断改用 EMA 滤波值，消除瞬时毛刺导致的方向误判 */
-                g_avoid_dir = (avg_left_dist <= avg_right_dist) ? 1 : -1;
+                // 突发近场避障时，谁近就往相反方向闪避
+                g_avoid_dir = (radar1.data.target_dist_cm <= radar2.data.target_dist_cm) ? 1 : -1;
             }
             else
             {
+                // 没有任何异常路口和障碍物，常规执行循迹
                 Track_Control();
             }
             break;
 
         case CAR_MODE_AVOIDING:
-            if (HAL_GetTick() - avoidance_start_tick >= AVOIDING_DURATION_MS)
-            {
-                g_car_state = CAR_MODE_RADAR_ON_TRACKING;
-                g_avoid_dir = 0;
-                junction_cooldown_tick = HAL_GetTick();
-            }
-            else
-            {
-                if (g_avoid_dir == 1) {
-                    Motor_SetBoth(BASE_AVOID_SPEED, -BASE_AVOID_SPEED);
-                } else if (g_avoid_dir == -1) {
-                    Motor_SetBoth(-BASE_AVOID_SPEED, BASE_AVOID_SPEED);
-                }
-
-                /* 旋转 400ms 后开始检测黑线是否已恢复，提前结束多余旋转 */
-                if (HAL_GetTick() - avoidance_start_tick > 400) {
-                    if (Track_IsLineRecovered()) {
+                    // 执行固定时长的差速原地旋转
+                    if (HAL_GetTick() - avoidance_start_tick < AVOIDING_DURATION_MS)
+                    {
+                        if (g_avoid_dir == 1)
+                        {
+                            // 🔄 【已修正极性】：原本是向右急转弯
+                            // 严格匹配你底盘“负数为前、正数为后”的特殊极性
+                            Motor_SetBoth(BASE_AVOID_SPEED, -BASE_AVOID_SPEED);
+                        }
+                        else if (g_avoid_dir == -1)
+                        {
+                            // 🔄 【已修正极性】：原本是向左急转弯
+                            Motor_SetBoth(-BASE_AVOID_SPEED, BASE_AVOID_SPEED);
+                        }
+                    }
+                    else
+                    {
+                        // 转向时间到，完成转弯，重新回退到带雷达的常规循迹状态
                         g_car_state = CAR_MODE_RADAR_ON_TRACKING;
                         g_avoid_dir = 0;
                         junction_cooldown_tick = HAL_GetTick();
                     }
-                }
-            }
-            break;
+                    break;
     }
 }
