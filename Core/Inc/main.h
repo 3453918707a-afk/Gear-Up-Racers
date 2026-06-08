@@ -68,6 +68,10 @@ void Error_Handler(void);
 #define IN3_GPIO_Port GPIOE
 #define IN4_Pin GPIO_PIN_15
 #define IN4_GPIO_Port GPIOD
+#define AVOID_RIGHT_KEY_Pin GPIO_PIN_0
+#define AVOID_RIGHT_KEY_GPIO_Port GPIOA
+#define AVOID_LEFT_KEY_Pin GPIO_PIN_4
+#define AVOID_LEFT_KEY_GPIO_Port GPIOE
 
 /* USER CODE END Private defines */
 

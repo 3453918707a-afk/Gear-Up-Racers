@@ -18,6 +18,7 @@ extern volatile uint8_t  elapsed_sec;
 
 // 超声波最终测量结果 (单位: cm)
 extern volatile float    distance_cm;
+extern volatile uint32_t hcsr04_sample_seq;
 
 /* 外部公共调用接口 */
 void HCSR04_Init(void);

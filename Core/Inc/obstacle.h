@@ -22,10 +22,13 @@ typedef enum {
 } CarState_t;
 
 extern volatile CarState_t g_car_state;
+extern volatile uint8_t g_avoidance_done;
 
 void Obstacle_Init(void);
 void Obstacle_ActivateRadar(void);
 void Obstacle_ManagerLoop(void);
+int8_t Obstacle_CompareAvgDist(void);
+int8_t Obstacle_GetPendingAvoidDir(void);
 
 #ifdef __cplusplus
 }

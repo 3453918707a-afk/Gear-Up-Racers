@@ -1,14 +1,8 @@
-/*
- * lora.c
- *
- *  Created on: May 23, 2026
- *      Author: J2005
- */
 #include "lora.h"
 #include "usart.h"
 #include <string.h>
 
-extern UART_HandleTypeDef huart3;  // 需要在 CubeMX 中配置并生成好 USART3 句柄
+extern UART_HandleTypeDef huart3;
 
 /**
  * @brief  初始化 LoRa 模块
@@ -36,4 +30,3 @@ void LoRa_SendFixed(char *str)
     // 2. 发送真实的业务报文数据
     HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), 1000);
 }
-

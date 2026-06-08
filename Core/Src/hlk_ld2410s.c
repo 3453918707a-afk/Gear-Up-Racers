@@ -71,17 +71,18 @@ void LD2410S_ParseByte(LD2410S_Context_t *ctx, uint8_t byte) {
             ctx->count++;
             if (ctx->count == 4) {
                 if (ctx->tail_reg == 0xF5F6F7F8) {
-                    if (ctx->buf[0] == 0x01 && ctx->data_len >= 70) {
+                    if ((ctx->buf[0] == 0x01 || ctx->buf[0] == 0x02) && ctx->data_len >= 6) {
                         ctx->data.target_status = ctx->buf[1];
                         ctx->data.target_dist_cm = ctx->buf[2] | ((uint16_t)ctx->buf[3] << 8);
 
-                        // 4字节小端完整能量值提取
-                        for (int g = 0; g < 16; g++) {
-                            int base_idx = 6 + (g * 4);
-                            ctx->data.gate_energy[g] = (uint32_t)ctx->buf[base_idx]         |
-                                                       ((uint32_t)ctx->buf[base_idx + 1] << 8)  |
-                                                       ((uint32_t)ctx->buf[base_idx + 2] << 16) |
-                                                       ((uint32_t)ctx->buf[base_idx + 3] << 24);
+                        if (ctx->data_len >= 70) {
+                            for (int g = 0; g < 16; g++) {
+                                int base_idx = 6 + (g * 4);
+                                ctx->data.gate_energy[g] = (uint32_t)ctx->buf[base_idx]         |
+                                                           ((uint32_t)ctx->buf[base_idx + 1] << 8)  |
+                                                           ((uint32_t)ctx->buf[base_idx + 2] << 16) |
+                                                           ((uint32_t)ctx->buf[base_idx + 3] << 24);
+                            }
                         }
                         ctx->data.is_new_data = 1;
                     }
@@ -115,103 +116,144 @@ static float CatmullRomInterpolate(float p0, float p1, float p2, float p3, float
                    (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3);
 }
 
-static void DrawRadarGraph(LD2410S_Context_t *ctx, uint16_t x_offset, uint16_t y_offset, uint16_t text_x, const char* name, uint16_t *last_dist) {
-    if (ctx->data.is_new_data) {
-        // 1. 刷新文本精确距离
-        if (ctx->data.target_dist_cm != *last_dist) {
+/* 雷达数据快照：画图前冻结当前帧，避免SPI传输期间ISR更新导致帧撕裂 */
+typedef struct {
+    uint16_t target_dist_cm;
+    uint8_t  target_status;
+    uint32_t gate_energy[16];
+} RadarSnapshot_t;
+
+/* ==================== 优化后的雷达图刷屏算法（分时分批+强行延时歇息） ==================== */
+
+static void DrawRadarGraph(RadarSnapshot_t *snap, uint16_t x_offset, uint16_t y_offset, uint16_t text_x, const char* name, uint16_t *last_dist) {
+    // 1. 刷新文本（无目标时显示---）
+    {
+        uint16_t display_val = (snap->target_status != 0) ? snap->target_dist_cm : 0xFFFF;
+        if (display_val != *last_dist) {
             char dist_str[32];
-            sprintf(dist_str, "%s:%03dcm ", name, ctx->data.target_dist_cm);
-            LCD_ShowString(text_x, 10, dist_str, WHITE, BLACK);
-            *last_dist = ctx->data.target_dist_cm;
-        }
-
-        // 2. 清空绘制缓冲区
-        memset(graph_buf, 0, sizeof(graph_buf));
-
-        // 3. 绘制平滑雷达能量谱曲线
-        int last_x = 0;
-        int last_y = (int)(ctx->data.gate_energy[0] * ENERGY_SCALE_FACTOR);
-        if (last_y > 179) last_y = 179;
-        if (last_y < 0) last_y = 0;
-
-        for (int px = 1; px < 160; px++) {
-            float gate_index = (float)px * 15.0f / 159.0f;
-            int i = (int)gate_index;
-            float t = gate_index - i;
-
-            if (i >= 15) {
-                i = 14;
-                t = 1.0f;
+            if (snap->target_status != 0) {
+                sprintf(dist_str, "%s:%03dcm ", name, snap->target_dist_cm);
+            } else {
+                sprintf(dist_str, "%s:---   ", name);
             }
-
-            float p0 = (i - 1 >= 0) ? (float)ctx->data.gate_energy[i - 1] : (float)ctx->data.gate_energy[0];
-            float p1 = (float)ctx->data.gate_energy[i];
-            float p2 = (i + 1 <= 15) ? (float)ctx->data.gate_energy[i + 1] : (float)ctx->data.gate_energy[15];
-            float p3 = (i + 2 <= 15) ? (float)ctx->data.gate_energy[i + 2] : (float)ctx->data.gate_energy[15];
-
-            float interpolated_y = CatmullRomInterpolate(p0, p1, p2, p3, t);
-
-            int current_y = (int)(interpolated_y * ENERGY_SCALE_FACTOR);
-            if (current_y > 179) current_y = 179;
-            if (current_y < 0) current_y = 0;
-
-            // 179 - Y 翻转原点到左下角
-            DrawLineToBuf(last_x, 179 - last_y, px, 179 - current_y, GREEN);
-
-            last_x = px;
-            last_y = current_y;
+            LCD_ShowString(text_x, 10, dist_str, WHITE, BLACK);
+            *last_dist = display_val;
         }
+    }
 
-        // 4. SPI 刷屏全量传输
-        LCD_SetWindow(x_offset, y_offset, x_offset + 159, y_offset + 179);
-        LCD_DC_SET();
+    // 2. 清空绘制缓冲区
+    memset(graph_buf, 0, sizeof(graph_buf));
+
+    // 3. 绘制平滑雷达能量谱曲线
+    int last_x = 0;
+    int last_y = (int)(snap->gate_energy[0] * ENERGY_SCALE_FACTOR);
+    if (last_y > 179) last_y = 179;
+    if (last_y < 0) last_y = 0;
+
+    for (int px = 1; px < 160; px++) {
+        float gate_index = (float)px * 15.0f / 159.0f;
+        int i = (int)gate_index;
+        float t = gate_index - i;
+
+        if (i >= 15) { i = 14; t = 1.0f; }
+
+        float p0 = (i - 1 >= 0) ? (float)snap->gate_energy[i - 1] : (float)snap->gate_energy[0];
+        float p1 = (float)snap->gate_energy[i];
+        float p2 = (i + 1 <= 15) ? (float)snap->gate_energy[i + 1] : (float)snap->gate_energy[15];
+        float p3 = (i + 2 <= 15) ? (float)snap->gate_energy[i + 2] : (float)snap->gate_energy[15];
+
+        float interpolated_y = CatmullRomInterpolate(p0, p1, p2, p3, t);
+
+        int current_y = (int)(interpolated_y * ENERGY_SCALE_FACTOR);
+        if (current_y > 179) current_y = 179;
+        if (current_y < 0) current_y = 0;
+
+        DrawLineToBuf(last_x, 179 - last_y, px, 179 - current_y, GREEN);
+
+        last_x = px;
+        last_y = current_y;
+    }
+
+    // 4. 分块SPI传输，每块后短暂延时避免供电轨塌陷
+    uint8_t *ptr = (uint8_t*)graph_buf;
+    uint32_t remaining = sizeof(graph_buf);
+
+    LCD_SetWindow(x_offset, y_offset, x_offset + 159, y_offset + 179);
+    LCD_DC_SET();
+
+    while (remaining > 0) {
+        uint32_t chunk = (remaining > 2880) ? 2880 : remaining;
+
         LCD_CS_CLR();
-        HAL_SPI_Transmit(&hspi1, (uint8_t*)graph_buf, sizeof(graph_buf), HAL_MAX_DELAY);
+        HAL_SPI_Transmit(&hspi1, ptr, chunk, HAL_MAX_DELAY);
         LCD_CS_SET();
 
-        ctx->data.is_new_data = 0;
+        ptr += chunk;
+        remaining -= chunk;
+
+        HAL_Delay(1);
     }
 }
 
-// 外部统一调用
-// 外部统一调用
+// 无阻塞刷新：快照冻结数据后绘制，消除帧撕裂
 void Draw_Energy_Spectrum(void) {
     static uint16_t last_dist_1 = 0xFFFF;
     static uint16_t last_dist_2 = 0xFFFF;
 
-    // --- 新增：用于控制刷新频率的静态变量 ---
-    static uint32_t last_screen_tick = 0;
-    static uint8_t radar_toggle = 0;
+    /* 两个雷达都没有新数据 → 跳过整屏重绘，主循环从 ~5Hz 恢复到 ~100Hz */
+    if (!radar1.data.is_new_data && !radar2.data.is_new_data) return;
 
-    // 每 100ms 允许刷新一次（大大降低屏幕占用率）
-    if (HAL_GetTick() - last_screen_tick >= 100) {
-        last_screen_tick = HAL_GetTick();
+    RadarSnapshot_t snap1, snap2;
 
-        if (radar_toggle == 0) {
-            // ✅ 本轮时间片：仅刷新雷达 1（耗时约 22ms）
-            DrawRadarGraph(&radar1, 0, 40, 10, "R1", &last_dist_1);
-            radar_toggle = 1;
-        } else {
-            // ✅ 下轮时间片：仅刷新雷达 2（耗时约 22ms）
-            DrawRadarGraph(&radar2, 160, 40, 170, "R2", &last_dist_2);
-            radar_toggle = 0;
-        }
-    }
+    __disable_irq();
+    snap1.target_dist_cm = radar1.data.target_dist_cm;
+    snap1.target_status   = radar1.data.target_status;
+    memcpy(snap1.gate_energy, radar1.data.gate_energy, sizeof(snap1.gate_energy));
+    uint8_t r1_new = radar1.data.is_new_data;
+    radar1.data.is_new_data = 0;
+    snap2.target_dist_cm = radar2.data.target_dist_cm;
+    snap2.target_status   = radar2.data.target_status;
+    memcpy(snap2.gate_energy, radar2.data.gate_energy, sizeof(snap2.gate_energy));
+    uint8_t r2_new = radar2.data.is_new_data;
+    radar2.data.is_new_data = 0;
+    __enable_irq();
+
+    if (r1_new) DrawRadarGraph(&snap1, 0,   40, 10,  "R1", &last_dist_1);
+    if (r2_new) DrawRadarGraph(&snap2, 160, 40, 170, "R2", &last_dist_2);
 }
 
 void LD2410S_Init(void) {
     uint8_t enable_val[] = {0x01, 0x00};
     uint8_t mode_val[] = {0x00, 0x00, 0x01, 0x00, 0x00, 0x00};
+    // 0x0060: 动检最大门=3, 静检最大门=3, 无人持续时间=0s
+    uint8_t dist_cfg[] = {
+        0x00, 0x00,               // word: 动检最大距离门
+        0x03, 0x00, 0x00, 0x00,   // value: 3 (~2.25m)
+        0x01, 0x00,               // word: 静检最大距离门
+        0x03, 0x00, 0x00, 0x00,   // value: 3
+        0x02, 0x00,               // word: 无人持续时间
+        0x00, 0x00, 0x00, 0x00    // value: 0s
+    };
+
+    HAL_Delay(1000);
 
     LD2410S_SendCmd(&huart2, 0x00FF, enable_val, 2);
+    HAL_Delay(80);
     LD2410S_SendCmd(&huart5, 0x00FF, enable_val, 2);
-    HAL_Delay(50);
+    HAL_Delay(80);
 
     LD2410S_SendCmd(&huart2, 0x007A, mode_val, 6);
+    HAL_Delay(80);
     LD2410S_SendCmd(&huart5, 0x007A, mode_val, 6);
-    HAL_Delay(50);
+    HAL_Delay(80);
+
+    LD2410S_SendCmd(&huart2, 0x0060, dist_cfg, 18);
+    HAL_Delay(80);
+    LD2410S_SendCmd(&huart5, 0x0060, dist_cfg, 18);
+    HAL_Delay(80);
 
     LD2410S_SendCmd(&huart2, 0x00FE, NULL, 0);
+    HAL_Delay(80);
     LD2410S_SendCmd(&huart5, 0x00FE, NULL, 0);
-    HAL_Delay(50);
+    HAL_Delay(80);
 }

@@ -1,5 +1,6 @@
 #include "us100.h"
 #include "lora.h"
+#include "main.h"  // 必须包含以获取 SystemCoreClock 和 HAL 库支持
 #include <stdio.h>
 
 #define TRIG_PIN          GPIO_PIN_10
@@ -10,11 +11,11 @@
 #define TRIG_PULSE_US     15
 #define MEASURE_TIMEOUT   100
 #define TRIGGER_DIST_CM   50.0f
-#define TX_LOCKOUT_MS     2000
+#define TX_LOCKOUT_MS     7000
 
-volatile uint8_t  hour        = 15;
-volatile uint8_t  minute      = 30;
-volatile uint8_t  second      = 0;
+volatile uint8_t  hour        = 9;
+volatile uint8_t  minute      = 07;
+volatile uint8_t  second      = 17;
 volatile uint16_t elapsed_min = 0;
 volatile uint8_t  elapsed_sec = 0;
 
@@ -22,6 +23,7 @@ volatile uint32_t echo_start   = 0;
 volatile uint32_t echo_width   = 0;
 volatile uint8_t  echo_ready   = 0;
 volatile float    distance_cm  = 0.0f;
+volatile uint32_t hcsr04_sample_seq = 0;
 
 static uint32_t   last_tx_tick = 0;
 
@@ -80,11 +82,9 @@ void HCSR04_Task(void)
 
                     char msg[120];
                     snprintf(msg, sizeof(msg),
-                             "D:%.1fcm,T:%02d:%02d:%02d,N:02,TEAM:Gear Up Racers,ET:%02d:%02d",
-                             distance_cm,
-                             hour, minute, second,
-                             elapsed_min, elapsed_sec);
-
+                                                 "T:%02d:%02d:%02d,N:02,TEAM:Gear Up Racers,ET:%02d:%02d\r\n",
+                                                 hour, minute, second,
+                                                 elapsed_min, elapsed_sec);
                     LoRa_SendFixed(msg);
                 }
             }
@@ -142,5 +142,6 @@ void HCSR04_EXTI_Callback(uint16_t GPIO_Pin)
             distance_cm = 0.0f;
         }
         echo_ready = 1;
+        hcsr04_sample_seq++;
     }
 }

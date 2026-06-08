@@ -62,6 +62,10 @@ void LCD_Init(void) {
     LCD_FillRect(0, 0, 320, 240, BLACK); // 初始全屏清黑
 }
 
+void LCD_Clear(uint16_t color) {
+    LCD_FillRect(0, 0, 320, 240, color);
+}
+
 void LCD_DrawPoint(uint16_t x, uint16_t y, uint16_t color) {
     LCD_SetWindow(x, y, x, y);
     LCD_DC_SET();
@@ -119,5 +123,102 @@ void LCD_ShowString(uint16_t x, uint16_t y, char *p, uint16_t color, uint16_t bg
         LCD_ShowChar(x, y, *p, color, bg_color);
         x += 8;
         p++;
+    }
+}
+
+void LCD_ShowCharScaled(uint16_t x, uint16_t y, char num, uint8_t scale,
+                        uint16_t color, uint16_t bg_color) {
+    if (scale == 0U) {
+        return;
+    }
+
+    uint8_t index = (uint8_t)(num - ' ');
+    if (index >= 95U) {
+        index = 0U;
+    }
+
+    for (uint8_t row = 0; row < 16; row++) {
+        uint8_t bits = asc2_1608[index][row];
+        for (uint8_t col = 0; col < 8; col++) {
+            uint16_t out = (bits & (0x80 >> col)) ? color : bg_color;
+            LCD_FillRect(x + col * scale, y + row * scale, scale, scale, out);
+        }
+    }
+}
+
+void LCD_ShowStringScaled(uint16_t x, uint16_t y, char *p, uint8_t scale,
+                          uint16_t color, uint16_t bg_color) {
+    while (*p != '\0') {
+        LCD_ShowCharScaled(x, y, *p, scale, color, bg_color);
+        x += 8U * scale;
+        p++;
+    }
+}
+
+void LCD_ShowHz16(uint16_t x, uint16_t y, uint16_t unicode, uint16_t color, uint16_t bg_color) {
+    const unsigned char *glyph = NULL;
+
+    for (uint32_t i = 0; i < HZ16_TABLE_SIZE; i++) {
+        if (hz16_table[i].unicode == unicode) {
+            glyph = hz16_table[i].data;
+            break;
+        }
+    }
+
+    LCD_SetWindow(x, y, x + 15, y + 15);
+    LCD_DC_SET();
+    LCD_CS_CLR();
+
+    uint8_t row_buf[32];
+    for (uint8_t row = 0; row < 16; row++) {
+        uint8_t byte0 = glyph ? glyph[row * 2] : ((row == 0 || row == 15) ? 0xFF : 0x80);
+        uint8_t byte1 = glyph ? glyph[row * 2 + 1] : ((row == 0 || row == 15) ? 0xFF : 0x01);
+        uint8_t *p = row_buf;
+
+        for (uint8_t col = 0; col < 16; col++) {
+            uint8_t mask = (col < 8) ? (0x80 >> col) : (0x80 >> (col - 8));
+            uint8_t on = (col < 8) ? (byte0 & mask) : (byte1 & mask);
+            uint16_t out = on ? color : bg_color;
+            *p++ = out >> 8;
+            *p++ = out & 0xFF;
+        }
+        HAL_SPI_Transmit(&hspi1, row_buf, 32, HAL_MAX_DELAY);
+    }
+    LCD_CS_SET();
+}
+
+void LCD_ShowHz16Line(uint16_t x, uint16_t y, const uint16_t *text, uint8_t len,
+                      uint16_t color, uint16_t bg_color) {
+    for (uint8_t i = 0; i < len; i++) {
+        LCD_ShowHz16(x + i * 18, y, text[i], color, bg_color);
+    }
+}
+
+void LCD_ShowHz32(uint16_t x, uint16_t y, uint16_t unicode, uint16_t color, uint16_t bg_color) {
+    const unsigned char *glyph = NULL;
+
+    for (uint32_t i = 0; i < HZ16_TABLE_SIZE; i++) {
+        if (hz16_table[i].unicode == unicode) {
+            glyph = hz16_table[i].data;
+            break;
+        }
+    }
+
+    for (uint8_t row = 0; row < 16; row++) {
+        uint8_t byte0 = glyph ? glyph[row * 2] : ((row == 0 || row == 15) ? 0xFF : 0x80);
+        uint8_t byte1 = glyph ? glyph[row * 2 + 1] : ((row == 0 || row == 15) ? 0xFF : 0x01);
+
+        for (uint8_t col = 0; col < 16; col++) {
+            uint8_t mask = (col < 8) ? (0x80 >> col) : (0x80 >> (col - 8));
+            uint8_t on = (col < 8) ? (byte0 & mask) : (byte1 & mask);
+            LCD_FillRect(x + col * 2U, y + row * 2U, 2, 2, on ? color : bg_color);
+        }
+    }
+}
+
+void LCD_ShowHz32Line(uint16_t x, uint16_t y, const uint16_t *text, uint8_t len,
+                      uint16_t color, uint16_t bg_color) {
+    for (uint8_t i = 0; i < len; i++) {
+        LCD_ShowHz32(x + i * 36U, y, text[i], color, bg_color);
     }
 }

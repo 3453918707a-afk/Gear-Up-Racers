@@ -47,5 +47,15 @@ void LCD_DrawPoint(uint16_t x, uint16_t y, uint16_t color);
 void LCD_DrawLine(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
 void LCD_ShowChar(uint16_t x, uint16_t y, char num, uint16_t color, uint16_t bg_color);
 void LCD_ShowString(uint16_t x, uint16_t y, char *p, uint16_t color, uint16_t bg_color);
+void LCD_ShowCharScaled(uint16_t x, uint16_t y, char num, uint8_t scale,
+                        uint16_t color, uint16_t bg_color);
+void LCD_ShowStringScaled(uint16_t x, uint16_t y, char *p, uint8_t scale,
+                          uint16_t color, uint16_t bg_color);
+void LCD_ShowHz16(uint16_t x, uint16_t y, uint16_t unicode, uint16_t color, uint16_t bg_color);
+void LCD_ShowHz16Line(uint16_t x, uint16_t y, const uint16_t *text, uint8_t len,
+                      uint16_t color, uint16_t bg_color);
+void LCD_ShowHz32(uint16_t x, uint16_t y, uint16_t unicode, uint16_t color, uint16_t bg_color);
+void LCD_ShowHz32Line(uint16_t x, uint16_t y, const uint16_t *text, uint8_t len,
+                      uint16_t color, uint16_t bg_color);
 
 #endif /* INC_LCD_H_ */

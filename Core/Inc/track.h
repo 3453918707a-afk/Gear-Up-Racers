@@ -30,12 +30,18 @@ typedef struct {
 
 /* 公共函数接口 */
 void Track_Init(void);
+void Track_ResetControlState(void);
 void Track_Control(void);
 void Motor_SetBoth(int left, int right);
 void Motor_Stop(void);
 
 int Track_GetLastError(void);
 int Track_IsSpecificTRoad(void);
+int Track_IsLineRecovered(void);
+int Track_IsFinished(void);
+void Track_UpdateRadarActivation(void);
+uint8_t Track_GetRadarStage(void);
+int Track_ShouldActivateRadar(void);
 
 #ifdef __cplusplus
 }
